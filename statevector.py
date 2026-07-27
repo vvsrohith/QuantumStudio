@@ -18,19 +18,25 @@ class StatevectorCanvas(FigureCanvasQTAgg):
 
         probabilities = statevector.probabilities()
 
+        amplitudes = statevector.data
+
         labels = [
-            format(i, f"0{statevector.num_qubits}b")
+            "|" + format(i, f"0{statevector.num_qubits}b") + "⟩"
             for i in range(len(probabilities))
         ]
 
-        self.axes.bar(
-            labels,
-            probabilities
-        )
+        self.axes.bar(labels, probabilities)
 
-        self.axes.set_ylim(0, 1)
-        self.axes.set_title("Statevector Probabilities")
-        self.axes.set_xlabel("Basis State")
+        for i, prob in enumerate(probabilities):
+
+            self.axes.text(i, prob + 0.02, f"{prob*100:.1f}%", ha="center")
+
+        self.axes.set_ylim(0, 1.1)
+
+        self.axes.set_title("Quantum State Probabilities")
+
+        self.axes.set_xlabel("Basis States")
+
         self.axes.set_ylabel("Probability")
 
         self.draw()
