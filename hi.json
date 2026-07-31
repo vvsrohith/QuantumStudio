@@ -1,0 +1,100 @@
+{
+    "qubits": 2,
+    "grid": [
+        [
+            {
+                "type": "single",
+                "gate": "H",
+                "angle": null
+            },
+            {
+                "type": "single",
+                "gate": "X",
+                "angle": null
+            },
+            null,
+            {
+                "type": "single",
+                "gate": "S",
+                "angle": null
+            },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ],
+        [
+            null,
+            null,
+            null,
+            null,
+            {
+                "type": "single",
+                "gate": "RX",
+                "angle": "60"
+            },
+            {
+                "type": "single",
+                "gate": "RZ",
+                "angle": "3.14159"
+            },
+            {
+                "type": "measure",
+                "gate": "M"
+            },
+            {
+                "type": "single",
+                "gate": "Reset",
+                "angle": null
+            },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ]
+    ]
+}

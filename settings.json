@@ -1,0 +1,9 @@
+{
+    "default_qubits": 5,
+    "animation_speed": 100,
+    "autosave": false,
+    "window_width": 1366,
+    "window_height": 697,
+    "window_x": 0,
+    "window_y": -8
+}

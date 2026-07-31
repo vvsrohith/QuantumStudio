@@ -1,0 +1,94 @@
+{
+    "qubits": 2,
+    "grid": [
+        [
+            {
+                "type": "single",
+                "gate": "H",
+                "angle": null
+            },
+            {
+                "type": "control",
+                "gate": "CX",
+                "control": 0,
+                "target": 1
+            },
+            {
+                "type": "single",
+                "gate": "RZ",
+                "angle": "3.14159/4"
+            },
+            {
+                "type": "measure",
+                "gate": "M"
+            },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ],
+        [
+            null,
+            {
+                "type": "target",
+                "gate": "CX",
+                "control": 0,
+                "target": 1
+            },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ]
+    ]
+}

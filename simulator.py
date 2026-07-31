@@ -1,6 +1,7 @@
 from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 from qiskit.quantum_info import Statevector
+import math
 
 
 class QuantumSimulator:
@@ -124,10 +125,22 @@ class QuantumSimulator:
         except Exception:
             data = self.last_result.data(0)
 
-            if "counts" in data:
-                return data["counts"]
+            counts = data.get("counts", {})
 
-            return {}
+            fixed = {}
+
+            for key, value in counts.items():
+
+                if key.startswith("0x"):
+                    bits = format(
+                        int(key, 16),
+                        f"0{self.num_qubits}b",
+                    )
+                    fixed[bits] = value
+                else:
+                    fixed[key] = value
+
+            return fixed
 
     def get_state(self):
 
@@ -153,7 +166,7 @@ class QuantumSimulator:
 
     # Used by rebuild_circuit()
 
-    def apply_gate(self, gate, qubit=0):
+    def apply_gate(self, gate, qubit=0, angle=None):
 
         gate = gate.upper()
 
@@ -176,13 +189,13 @@ class QuantumSimulator:
             self.t(qubit)
 
         elif gate == "RX":
-            self.rx(1.57, qubit)
+            self.rx(angle if angle is not None else 1.57, qubit)
 
         elif gate == "RY":
-            self.ry(1.57, qubit)
+            self.ry(angle if angle is not None else 1.57, qubit)
 
         elif gate == "RZ":
-            self.rz(1.57, qubit)
+            self.rz(angle if angle is not None else 1.57, qubit)
 
         elif gate in ["M", "MEASURE"]:
             self.circuit.measure(qubit, qubit)
@@ -210,9 +223,22 @@ class QuantumSimulator:
 
                 if cell_type == "single":
 
+                    angle = None
+
+                    if "angle" in cell and cell["angle"] is not None:
+                        try:
+                            angle = eval(
+                                cell["angle"],
+                                {"__builtins__": {}},
+                                {"pi": math.pi},
+                            )
+                        except Exception:
+                            angle = 1.57
+
                     self.apply_gate(
                         cell["gate"],
                         q,
+                        angle,
                     )
 
                 elif cell_type == "measure":

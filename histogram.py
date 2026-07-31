@@ -14,6 +14,8 @@ class HistogramCanvas(FigureCanvasQTAgg):
 
     def update_plot(self, counts):
 
+        print("Histogram received:", counts)
+
         self.axes.clear()
 
         if counts:
@@ -26,29 +28,27 @@ class HistogramCanvas(FigureCanvasQTAgg):
             for state, value in counts.items():
 
                 if isinstance(state, str) and state.startswith("0x"):
-
                     binary = bin(int(state, 16))[2:].zfill(2)
-
                 else:
                     binary = state
 
                 states.append("|" + binary + "⟩")
-
                 probabilities.append((value / total) * 100)
+
+            print(states)
+            print(probabilities)
 
             self.axes.bar(states, probabilities)
 
             self.axes.set_ylabel("Probability (%)")
-
             self.axes.set_xlabel("Quantum States")
-
             self.axes.set_ylim(0, 100)
 
             for i, value in enumerate(probabilities):
-
                 self.axes.text(i, value + 2, f"{value:.1f}%", ha="center")
 
-        self.draw()
+            self.draw()
+            print("Histogram Drawn")
 
     def clear(self):
 

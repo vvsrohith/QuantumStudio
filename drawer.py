@@ -1,3 +1,4 @@
+from PySide6.QtWidgets import QGraphicsScene
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -9,16 +10,39 @@ from PySide6.QtWidgets import (
 )
 
 
+class CircuitScene(QGraphicsScene):
+
+    def __init__(self, drawer):
+        super().__init__()
+        self.drawer = drawer
+
+    def mousePressEvent(self, event):
+        pos = event.scenePos()
+
+        qubit, column = self.drawer.scene_to_grid(pos.x(), pos.y())
+
+        self.drawer.selected_qubit = qubit
+        self.drawer.selected_column = column
+
+        self.drawer.highlight_selected(qubit, column)
+
+        if hasattr(self.drawer, "parent"):
+            self.drawer.parent.select_cell(qubit, column)
+
+        super().mousePressEvent(event)
+
+
 class CircuitDrawer:
 
-    def __init__(self, scene):
+    def __init__(self, scene, parent=None):
         self.scene = scene
+        self.parent = parent
         self.qubits = 2
         self.columns = 32
         self.current_column = 0
         self.selected_qubit = 0
         self.selected_column = 0
-
+        self.drag_start = None
         self.x_start = 100
         self.y_start = 60
 
@@ -29,6 +53,7 @@ class CircuitDrawer:
         self.gate_items = []
         self.selection_item = None
         self.highlight_item = None
+        self.drag_start = None
 
         self.create_grid(self.qubits)
 
@@ -104,7 +129,14 @@ class CircuitDrawer:
     # Single Gate Drawing
     # ----------------------------------------------------
 
-    def draw_single_gate(self, gate, row, column, colour="#4da6ff"):
+    def draw_single_gate(
+        self,
+        gate,
+        row,
+        column,
+        colour="#4da6ff",
+        angle=None,
+    ):
         x = self.get_x(column)
         y = self.get_y(row)
 
@@ -113,14 +145,23 @@ class CircuitDrawer:
         self.scene.addItem(rect)
 
         text = QGraphicsSimpleTextItem(gate)
-        text.setPos(x + 10, y - 12)
+        text.setPos(x + 10, y - 18)
         self.scene.addItem(text)
+
+        items = [rect, text]
+
+        if angle is not None:
+            angle_text = QGraphicsSimpleTextItem(str(angle))
+            angle_text.setScale(0.6)
+            angle_text.setPos(x + 4, y + 2)
+            self.scene.addItem(angle_text)
+            items.append(angle_text)
 
         self.gate_items.append(
             {
                 "row": row,
                 "column": column,
-                "items": [rect, text],
+                "items": items,
             }
         )
 
@@ -253,6 +294,7 @@ class CircuitDrawer:
                         gate["gate"],
                         row,
                         col,
+                        angle=gate.get("angle"),
                     )
                 elif gate_type == "measure":
                     self.draw_single_gate(
@@ -278,10 +320,11 @@ class CircuitDrawer:
     # Gate Manipulation & Placement
     # ----------------------------------------------------
 
-    def place_gate(self, gate, qubit, column):
+    def place_gate(self, gate, qubit, column, angle=None):
         self.circuit_grid[qubit][column] = {
             "type": "single",
             "gate": gate,
+            "angle": angle,
         }
         self.current_column = self.find_next_column()
 
