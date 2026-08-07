@@ -1,93 +1,26 @@
-from math import pi
-
+INFO = {
+    "name": "Quantum Fourier Transform",
+    "description": "Performs the quantum analogue of the discrete Fourier transform and is a key component of many quantum algorithms.",
+}
 from qiskit import QuantumCircuit
 
+DISPLAY_NAME = "Quantum Fourier Transform"
 
-class QuantumFourierTransform:
 
-    @staticmethod
-    def build(qubits=3):
+def build():
+    circuit = QuantumCircuit(3)
 
-        circuit = QuantumCircuit(
-            qubits,
-            qubits
-        )
+    circuit.h(0)
 
-        QuantumFourierTransform.apply(
-            circuit,
-            qubits
-        )
+    circuit.cz(1, 0)
+    circuit.cz(2, 0)
 
-        circuit.measure(
-            range(qubits),
-            range(qubits)
-        )
+    circuit.h(1)
 
-        return circuit
+    circuit.cz(2, 1)
 
-    @staticmethod
-    def apply(
-        circuit,
-        qubits
-    ):
+    circuit.h(2)
 
-        for target in range(qubits):
+    circuit.swap(0, 2)
 
-            circuit.h(target)
-
-            for control in range(target + 1, qubits):
-
-                angle = pi / (2 ** (control - target))
-
-                circuit.cp(
-                    angle,
-                    control,
-                    target
-                )
-
-        for i in range(qubits // 2):
-
-            circuit.swap(
-                i,
-                qubits - i - 1
-            )
-
-    @staticmethod
-    def inverse(
-        circuit,
-        qubits
-    ):
-
-        for i in range(qubits // 2):
-
-            circuit.swap(
-                i,
-                qubits - i - 1
-            )
-
-        for target in reversed(range(qubits)):
-
-            for control in reversed(range(target + 1, qubits)):
-
-                angle = -pi / (2 ** (control - target))
-
-                circuit.cp(
-                    angle,
-                    control,
-                    target
-                )
-
-            circuit.h(target)
-
-    @staticmethod
-    def name():
-
-        return "Quantum Fourier Transform"
-
-    @staticmethod
-    def description():
-
-        return (
-            "Applies the Quantum Fourier Transform "
-            "or its inverse to a quantum register."
-        )
+    return circuit

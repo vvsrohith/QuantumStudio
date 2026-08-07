@@ -377,22 +377,50 @@ class CircuitDrawer:
         for instruction in circuit.data:
             operation = instruction.operation
             qubits = instruction.qubits
-            name = operation.name.upper()
 
-            if len(qubits) == 1:
+            name = operation.name.lower()
+
+            if name == "measure":
                 row = circuit.find_bit(qubits[0]).index
-                self.place_gate(name, row, column)
+                self.add_measure(row, column)
+
+            elif name in ["rx", "ry", "rz"]:
+                row = circuit.find_bit(qubits[0]).index
+
+                angle = None
+                if operation.params:
+                    angle = str(operation.params[0])
+
+                self.place_gate(
+                    name.upper(),
+                    row,
+                    column,
+                    angle=angle,
+                )
+
+            elif len(qubits) == 1:
+                row = circuit.find_bit(qubits[0]).index
+                self.place_gate(name.upper(), row, column)
 
             elif len(qubits) == 2:
+
                 control = circuit.find_bit(qubits[0]).index
                 target = circuit.find_bit(qubits[1]).index
 
                 gate = "CX"
-                if name == "CZ":
+
+                if name == "cz":
                     gate = "CZ"
-                elif name == "SWAP":
+                elif name == "swap":
                     gate = "SWAP"
 
-                self.add_control_gate(gate, control, target, column)
+                self.add_control_gate(
+                    gate,
+                    control,
+                    target,
+                    column,
+                )
 
             column += 1
+
+        self.redraw()

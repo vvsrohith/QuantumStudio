@@ -1,3 +1,7 @@
+INFO = {
+    "name": "Shor's Algorithm",
+    "description": "Factors large integers efficiently using quantum period finding.",
+}
 from qiskit import QuantumCircuit
 
 from algorithms.qft import QuantumFourierTransform
@@ -9,14 +13,9 @@ class ShorDemo:
     def build(qubits=4):
 
         if qubits < 3:
-            raise ValueError(
-                "Use at least 3 qubits."
-            )
+            raise ValueError("Use at least 3 qubits.")
 
-        circuit = QuantumCircuit(
-            qubits,
-            qubits
-        )
+        circuit = QuantumCircuit(qubits, qubits)
 
         # Prepare a periodic state
         for qubit in range(qubits):
@@ -33,16 +32,10 @@ class ShorDemo:
             circuit.cz(2, 3)
 
         # Apply Quantum Fourier Transform
-        QuantumFourierTransform.apply(
-            circuit,
-            qubits
-        )
+        QuantumFourierTransform.apply(circuit, qubits)
 
         # Measure
-        circuit.measure(
-            range(qubits),
-            range(qubits)
-        )
+        circuit.measure(range(qubits), range(qubits))
 
         return circuit
 

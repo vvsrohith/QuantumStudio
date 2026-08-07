@@ -1,12 +1,18 @@
+import os
+import importlib
 import copy
 import json
 import sys
+import importlib
 from pathlib import Path
-
 from qiskit.qasm3 import dumps
-
+from modules.workspace import Workspace
+from modules.algorithm_runner import AlgorithmRunner
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from modules.algorithm_browser import AlgorithmBrowser
+from modules.console_window import ConsoleWindow
+from modules.statistics_window import StatisticsWindow
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -28,8 +34,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QStatusBar,
-    QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -43,12 +47,21 @@ from importer import CircuitImporter
 from probability import ProbabilityCanvas
 from simulator import QuantumSimulator
 from statevector import StatevectorCanvas
+from modules.project_manager import ProjectManager
+from modules.settings_dialog import SettingsDialog
 
 
 class QuantumStudio(QMainWindow):
-
     def __init__(self):
         super().__init__()
+        from PySide6.QtWidgets import QTextEdit
+
+        self.console_tab = QTextEdit()
+        self.console_window = ConsoleWindow()
+        self.statistics_window = StatisticsWindow()
+        self.console_tab.setReadOnly(True)
+        self.circuit_console = QTextEdit()
+        self.circuit_console.setReadOnly(True)
 
         self.settings = {
             "default_qubits": 2,
@@ -84,8 +97,7 @@ class QuantumStudio(QMainWindow):
 
         self.exporter = CircuitExporter()
         self.importer = CircuitImporter()
-
-        self.create_menu()
+        self.project_manager = ProjectManager()
 
         self.recent_files = []
         self.load_recent_files()
@@ -100,22 +112,26 @@ class QuantumStudio(QMainWindow):
         self.build_gate_panel()
         self.build_circuit_panel()
         self.build_info_panel()
-        self.build_bottom_tabs()
+        self.workspace = Workspace()
+        self.main_layout.addWidget(self.workspace)
+        self.workspace.toolbar.view_requested.connect(self.open_plot_window)
+        self.create_menu()
 
-        self.setup_shortcuts()
-
+        self.detached_windows = {}
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.showMessage("Quantum Studio Ready")
 
         self.drawer = CircuitDrawer(self.scene, self)
+        self.algorithm_runner = AlgorithmRunner(self)
         self.drawer.selected_qubit = 0
         self.drawer.selected_column = 0
         self.drawer.redraw()
 
         self.view.setMouseTracking(True)
         self.view.mousePressEvent = self.circuit_clicked
-
+        self.restore_autosave()
+        self.setup_shortcuts()
         if Path("autosave.json").exists():
             reply = QMessageBox.question(
                 self,
@@ -130,99 +146,29 @@ class QuantumStudio(QMainWindow):
         if not Path("settings.json").exists():
             self.save_settings()
 
-    def setup_shortcuts(self):
-        QShortcut(
-            QKeySequence(Qt.Key_Left),
-            self,
-            lambda: self.move_selection(0, -1),
-        )
-
-        QShortcut(
-            QKeySequence(Qt.Key_Right),
-            self,
-            lambda: self.move_selection(0, 1),
-        )
-
-        QShortcut(
-            QKeySequence(Qt.Key_Up),
-            self,
-            lambda: self.move_selection(-1, 0),
-        )
-
-        QShortcut(
-            QKeySequence(Qt.Key_Down),
-            self,
-            lambda: self.move_selection(1, 0),
-        )
-
-        QShortcut(
-            QKeySequence("H"),
-            self,
-            lambda: self.add_gate("H"),
-        )
-
-        QShortcut(
-            QKeySequence("X"),
-            self,
-            lambda: self.add_gate("X"),
-        )
-
-        QShortcut(
-            QKeySequence("Y"),
-            self,
-            lambda: self.add_gate("Y"),
-        )
-
-        QShortcut(
-            QKeySequence("Z"),
-            self,
-            lambda: self.add_gate("Z"),
-        )
-
-        QShortcut(
-            QKeySequence("S"),
-            self,
-            lambda: self.add_gate("S"),
-        )
-
-        QShortcut(
-            QKeySequence("T"),
-            self,
-            lambda: self.add_gate("T"),
-        )
-
-        QShortcut(
-            QKeySequence("M"),
-            self,
-            lambda: self.add_gate("Measure"),
-        )
-
     def create_menu(self):
+
         menu = self.menuBar()
 
         file_menu = menu.addMenu("File")
-        self.recent_menu = file_menu.addMenu("Recent Files")
         edit_menu = menu.addMenu("Edit")
-        algorithm_menu = menu.addMenu("Algorithms")
         visualization_menu = menu.addMenu("Visualization")
-        help_menu = menu.addMenu("Help")
         settings_menu = menu.addMenu("Settings")
+        help_menu = menu.addMenu("Help")
+
+        self.recent_projects_menu = file_menu.addMenu("Recent Projects")
+        self.recent_menu = file_menu.addMenu("Recent Files")
+
+        # -----------------------------
+        # File
+        # -----------------------------
+
         self.new_action = QAction("New Circuit", self)
         self.open_action = QAction("Open", self)
         self.save_action = QAction("Save", self)
         self.export_png_action = QAction("Export PNG", self)
         self.export_qasm_action = QAction("Export QASM", self)
         self.exit_action = QAction("Exit", self)
-        self.copy_action = QAction("Copy Gate", self)
-        self.paste_action = QAction("Paste Gate", self)
-        self.copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), self)
-        self.copy_shortcut.activated.connect(self.copy_gate)
-
-        self.paste_shortcut = QShortcut(QKeySequence("Ctrl+V"), self)
-        self.paste_shortcut.activated.connect(self.paste_gate)
-
-        self.copy_action.triggered.connect(self.copy_gate)
-        self.paste_action.triggered.connect(self.paste_gate)
 
         self.new_action.triggered.connect(self.new_circuit)
         self.open_action.triggered.connect(self.open_circuit)
@@ -243,52 +189,122 @@ class QuantumStudio(QMainWindow):
         file_menu.addSeparator()
 
         file_menu.addAction(self.exit_action)
-        edit_menu.addAction(self.copy_action)
-        edit_menu.addAction(self.paste_action)
 
-        bell_action = QAction("Bell State", self)
-        bell_action.triggered.connect(self.load_bell)
+        # -----------------------------
+        # Edit
+        # -----------------------------
 
-        ghz_action = QAction("GHZ State", self)
-        ghz_action.triggered.connect(self.load_ghz)
-
-        teleport_action = QAction("Quantum Teleportation", self)
-        teleport_action.triggered.connect(self.load_teleportation)
-
-        grover_action = QAction("Grover Search", self)
-        grover_action.triggered.connect(self.load_grover)
-
-        deutsch_action = QAction("Deutsch", self)
-        deutsch_action.triggered.connect(self.load_deutsch)
-
-        qft_action = QAction("Quantum Fourier Transform", self)
-        qft_action.triggered.connect(self.load_qft)
-
-        algorithm_menu.addAction(bell_action)
-        algorithm_menu.addAction(ghz_action)
-        algorithm_menu.addAction(teleport_action)
-        algorithm_menu.addAction(grover_action)
-        algorithm_menu.addAction(deutsch_action)
-        algorithm_menu.addAction(qft_action)
-
-        visualization_menu.addAction("Histogram")
-        visualization_menu.addAction("Statevector")
-        visualization_menu.addAction("Bloch Sphere")
-
-        self.preferences_action = QAction("Preferences", self)
-        self.preferences_action.triggered.connect(self.open_preferences)
-
-        settings_menu.addAction(self.preferences_action)
-
-        self.about_action = QAction("About", self)
-        self.about_action.triggered.connect(self.about)
-
-        help_menu.addAction(self.about_action)
         self.copy_action = QAction("Copy Gate", self)
         self.paste_action = QAction("Paste Gate", self)
 
         self.copy_action.triggered.connect(self.copy_gate)
         self.paste_action.triggered.connect(self.paste_gate)
+
+        edit_menu.addAction(self.copy_action)
+        edit_menu.addAction(self.paste_action)
+
+        self.copy_shortcut = QShortcut(
+            QKeySequence("Ctrl+C"),
+            self,
+        )
+        self.copy_shortcut.activated.connect(self.copy_gate)
+
+        self.paste_shortcut = QShortcut(
+            QKeySequence("Ctrl+V"),
+            self,
+        )
+        self.paste_shortcut.activated.connect(self.paste_gate)
+
+        # -----------------------------
+        # Algorithms
+        # -----------------------------
+
+        self.create_algorithm_menu()
+
+        # -----------------------------
+        # Visualization
+        # -----------------------------
+
+        circuit_action = QAction("Circuit", self)
+        circuit_action.triggered.connect(self.show_circuit)
+
+        console_action = QAction("Console", self)
+        console_action.triggered.connect(self.show_console)
+
+        statistics_action = QAction("Statistics", self)
+        statistics_action.triggered.connect(self.show_statistics)
+
+        hist_action = QAction("Histogram", self)
+        hist_action.triggered.connect(lambda: self.open_plot_window("Histogram"))
+
+        state_action = QAction("Statevector", self)
+        state_action.triggered.connect(lambda: self.open_plot_window("Statevector"))
+
+        bloch_action = QAction("Bloch Sphere", self)
+        bloch_action.triggered.connect(lambda: self.open_plot_window("Bloch Sphere"))
+
+        prob_action = QAction("Probability", self)
+        prob_action.triggered.connect(lambda: self.open_plot_window("Probability"))
+
+        visualization_menu.addAction(circuit_action)
+        visualization_menu.addAction(console_action)
+        visualization_menu.addAction(statistics_action)
+        visualization_menu.addSeparator()
+        visualization_menu.addAction(hist_action)
+        visualization_menu.addAction(state_action)
+        visualization_menu.addAction(prob_action)
+        visualization_menu.addAction(bloch_action)
+
+        # -----------------------------
+        # Settings
+        # -----------------------------
+
+        self.preferences_action = QAction(
+            "Preferences",
+            self,
+        )
+
+        self.preferences_action.triggered.connect(self.open_settings)
+
+        settings_menu.addAction(self.preferences_action)
+
+        # -----------------------------
+        # Help
+        # -----------------------------
+
+        self.about_action = QAction(
+            "About",
+            self,
+        )
+
+        self.about_action.triggered.connect(self.about)
+
+        help_menu.addAction(self.about_action)
+
+        self.update_recent_projects_menu()
+
+    def show_circuit(self):
+        self.workspace.show()
+        self.workspace.raise_()
+
+    def show_console(self):
+        self.console_window.show()
+
+    def show_statistics(self):
+        stats = f"""
+Quantum Circuit Statistics
+
+Qubits:
+{self.simulator.num_qubits}
+
+Depth:
+{self.simulator.circuit.depth()}
+
+Gates:
+{len(self.simulator.circuit.data)}
+"""
+        self.statistics_window.update_stats(stats)
+        self.statistics_window.show()
 
     def build_gate_panel(self):
         gate_box = QGroupBox("Quantum Gates")
@@ -357,6 +373,7 @@ class QuantumStudio(QMainWindow):
         )
 
     def build_info_panel(self):
+
         info_box = QGroupBox("Circuit Information")
 
         layout = QVBoxLayout()
@@ -366,7 +383,6 @@ class QuantumStudio(QMainWindow):
         self.qubits = QComboBox()
         self.qubits.addItems(["1", "2", "3", "4", "5"])
         self.qubits.setCurrentText(str(self.settings["default_qubits"]))
-        self.qubits.setCurrentText("2")
         self.qubits.currentIndexChanged.connect(self.on_qubits_changed)
 
         layout.addWidget(self.qubits)
@@ -388,6 +404,62 @@ class QuantumStudio(QMainWindow):
         self.run_button.clicked.connect(self.run_circuit)
         layout.addWidget(self.run_button)
 
+        # ---------------------------------
+        # Algorithm Information
+        # ---------------------------------
+
+        algorithm_box = QGroupBox("Algorithm")
+        algorithm_box.setMinimumHeight(200)
+
+        algorithm_layout = QVBoxLayout()
+
+        self.algorithm_name = QLabel("No algorithm loaded")
+        self.algorithm_name.setStyleSheet("font-weight:bold;font-size:15px;")
+
+        self.algorithm_description = QLabel("")
+        self.algorithm_description.setWordWrap(True)
+        self.algorithm_description.setMinimumHeight(60)
+
+        self.algorithm_qubits = QLabel("Qubits: -")
+        self.algorithm_depth = QLabel("Depth: -")
+        self.algorithm_gates = QLabel("Gate Count: -")
+
+        algorithm_layout.addWidget(self.algorithm_name)
+        algorithm_layout.addWidget(self.algorithm_description)
+        algorithm_layout.addWidget(self.algorithm_qubits)
+        algorithm_layout.addWidget(self.algorithm_depth)
+        algorithm_layout.addWidget(self.algorithm_gates)
+
+        algorithm_box.setLayout(algorithm_layout)
+
+        layout.addWidget(algorithm_box)
+
+        # ---------------------------------
+        # Circuit Statistics
+        # ---------------------------------
+
+        stats_box = QGroupBox("Circuit Statistics")
+
+        stats_layout = QVBoxLayout()
+
+        self.stats_qubits = QLabel("Qubits: 0")
+        self.stats_depth = QLabel("Depth: 0")
+        self.stats_gates = QLabel("Gate Count: 0")
+        self.stats_single = QLabel("Single-Qubit Gates: 0")
+        self.stats_multi = QLabel("Multi-Qubit Gates: 0")
+        self.stats_measurements = QLabel("Measurements: 0")
+
+        stats_layout.addWidget(self.stats_qubits)
+        stats_layout.addWidget(self.stats_depth)
+        stats_layout.addWidget(self.stats_gates)
+        stats_layout.addWidget(self.stats_single)
+        stats_layout.addWidget(self.stats_multi)
+        stats_layout.addWidget(self.stats_measurements)
+
+        stats_box.setLayout(stats_layout)
+
+        layout.addWidget(stats_box)
+
         info_box.setLayout(layout)
 
         self.top_layout.addWidget(
@@ -398,47 +470,6 @@ class QuantumStudio(QMainWindow):
     def closeEvent(self, event):
         self.save_settings()
         super().closeEvent(event)
-
-    def build_bottom_tabs(self):
-        self.tabs = QTabWidget()
-
-        self.circuit_tab = QTextEdit()
-        self.circuit_tab.setReadOnly(True)
-
-        self.histogram_tab = HistogramCanvas()
-        self.statevector_tab = StatevectorCanvas()
-        self.bloch_tab = BlochCanvas()
-        self.probability_tab = ProbabilityCanvas()
-
-        self.console_tab = QTextEdit()
-        self.console_tab.setReadOnly(True)
-
-        self.tabs.addTab(
-            self.circuit_tab,
-            "Circuit",
-        )
-        self.tabs.addTab(
-            self.histogram_tab,
-            "Histogram",
-        )
-        self.tabs.addTab(
-            self.statevector_tab,
-            "Statevector",
-        )
-        self.tabs.addTab(
-            self.probability_tab,
-            "Probability",
-        )
-        self.tabs.addTab(
-            self.bloch_tab,
-            "Bloch Sphere",
-        )
-        self.tabs.addTab(
-            self.console_tab,
-            "Console",
-        )
-
-        self.main_layout.addWidget(self.tabs)
 
     def build_simulator(self):
         print("===== BUILDING SIMULATOR =====")
@@ -462,42 +493,10 @@ class QuantumStudio(QMainWindow):
             self.build_simulator()
 
             self.simulator.run()
-
             self.refresh_views()
 
         except Exception as e:
             self.console_tab.append(str(e))
-
-    def refresh_views(self):
-
-        counts = self.simulator.get_counts()
-        print("Counts:", counts)
-
-        try:
-            self.histogram_tab.update_plot(counts)
-            print("Histogram OK")
-        except Exception as e:
-            print("Histogram:", e)
-
-        try:
-            state = self.simulator.get_state()
-            self.statevector_tab.update_state(state)
-            print("Statevector OK")
-        except Exception as e:
-            print("Statevector:", e)
-
-        try:
-            self.bloch_tab.update_state(state)
-            print("Bloch OK")
-        except Exception as e:
-            print("Bloch:", e)
-
-        try:
-            probs = self.simulator.get_probabilities()
-            self.probability_tab.update_probabilities(probs)
-            print("Probability OK")
-        except Exception as e:
-            print("Probability:", e)
 
     def on_qubits_changed(self):
         qubits = int(self.qubits.currentText())
@@ -516,11 +515,19 @@ class QuantumStudio(QMainWindow):
         self.redo_stack.clear()
 
         self.history.clear()
-        self.circuit_tab.clear()
+        self.circuit_console.clear()
         self.console_tab.clear()
 
         self.status.showMessage(f"{qubits} qubits selected")
         self.update_simulation()
+
+    def get_state(self):
+
+        if self.last_state:
+
+            return self.last_state
+
+        return Statevector(self.circuit.remove_final_measurements(inplace=False))
 
     def add_gate(self, gate):
         self.undo_stack.append(copy.deepcopy(self.drawer.circuit_grid))
@@ -582,11 +589,11 @@ class QuantumStudio(QMainWindow):
 
         if angle is None:
             self.history.addItem(f"{gate} ({row},{col})")
-            self.circuit_tab.append(f"{gate} -> q{row}, c{col}")
+            self.circuit_console.append(f"{gate} -> q{row}, c{col}")
             self.console_tab.append(f"Added {gate}")
         else:
             self.history.addItem(f"{gate}({angle}) ({row},{col})")
-            self.circuit_tab.append(f"{gate}({angle}) -> q{row}, c{col}")
+            self.circuit_console.append(f"{gate}({angle}) -> q{row}, c{col}")
             self.console_tab.append(f"Added {gate}({angle})")
 
         self.status.showMessage(f"{gate} added")
@@ -677,7 +684,7 @@ class QuantumStudio(QMainWindow):
         self.redo_stack.clear()
 
         self.history.clear()
-        self.circuit_tab.clear()
+        self.circuit_console.clear()
         self.console_tab.clear()
 
         self.status.showMessage("New circuit created")
@@ -706,7 +713,8 @@ class QuantumStudio(QMainWindow):
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
-
+                self.project_manager.add(filename)
+                self.update_recent_projects_menu()
             self.add_recent_file(filename)
             self.console_tab.append(f"Saved circuit to {filename}")
             self.status.showMessage("Circuit saved")
@@ -744,10 +752,12 @@ class QuantumStudio(QMainWindow):
             self.drawer.redraw()
 
             self.history.clear()
-            self.circuit_tab.clear()
+            self.circuit_console.clear()
 
             self.update_simulation()
             self.add_recent_file(filename)
+            self.project_manager.add(filename)
+            self.update_recent_projects_menu()
             self.console_tab.append(f"Loaded {Path(filename).name}")
             self.status.showMessage("Circuit loaded")
 
@@ -777,7 +787,7 @@ class QuantumStudio(QMainWindow):
             self.drawer.redraw()
 
             self.history.clear()
-            self.circuit_tab.clear()
+            self.circuit_console.clear()
 
             self.update_simulation()
 
@@ -943,10 +953,14 @@ class QuantumStudio(QMainWindow):
         )
 
         self.drawer.redraw()
+
         self.select_cell(
             self.drawer.selected_qubit,
             self.drawer.selected_column,
         )
+
+        self.update_simulation()
+
         self.history.addItem(f"Deleted ({row},{col})")
         self.console_tab.append("Gate deleted")
         self.status.showMessage("Gate deleted")
@@ -1036,7 +1050,7 @@ class QuantumStudio(QMainWindow):
         self.drawer.redraw()
 
         self.history.addItem(f"Pasted {gate} ({row},{col})")
-        self.circuit_tab.append(f"{gate} -> q{row}, c{col}")
+        self.circuit_console.append(f"{gate} -> q{row}, c{col}")
         self.console_tab.append(f"Pasted {gate}")
         self.status.showMessage(f"{gate} pasted")
 
@@ -1130,203 +1144,27 @@ class QuantumStudio(QMainWindow):
         self.update_simulation()
         self.autosave_circuit()
 
-    def load_bell(self):
-
-        self.qubits.setCurrentText("2")
-
-        self.new_circuit()
-
-        self.drawer.place_gate("H", 0, 0)
-
-        self.drawer.add_control_gate("CX", 0, 1, 1)
-
-        self.drawer.add_measure(0, 2)
-
-        self.drawer.add_measure(1, 2)
-
+    def finish_algorithm_load(self, name):
         self.drawer.redraw()
 
         self.history.clear()
+        self.history.addItem(f"Loaded {name}")
 
-        self.history.addItem("Loaded Bell State")
+        self.circuit_console.clear()
+        self.circuit_console.append(f"{name} Circuit Loaded")
 
-        self.circuit_tab.clear()
+        self.console_tab.append(f"{name} loaded")
 
-        self.circuit_tab.append("Bell State Circuit Loaded")
-
-        self.console_tab.append("Bell State loaded")
-
-        self.status.showMessage("Bell State Ready")
-        self.autosave_circuit()
-
-    def load_ghz(self):
-        self.new_circuit()
-
-        if self.drawer.qubits < 3:
-            self.console_tab.append("GHZ State requires at least 3 qubits.")
-            return
-
-        self.drawer.place_gate("H", 0, 0)
-        self.drawer.add_control_gate("CX", 0, 1, 1)
-        self.drawer.add_control_gate("CX", 1, 2, 2)
-
-        self.drawer.redraw()
-
-        self.history.addItem("Loaded GHZ State")
-        self.console_tab.append("GHZ State loaded")
-        self.status.showMessage("GHZ State Loaded")
-
-        self.update_simulation()
-        self.autosave_circuit()
-
-    def load_teleportation(self):
-        self.new_circuit()
-
-        if self.drawer.qubits < 3:
-            self.console_tab.append("Quantum Teleportation requires at least 3 qubits.")
-            return
-
-        # Create Bell pair
-        self.drawer.place_gate("H", 1, 0)
-        self.drawer.add_control_gate("CX", 1, 2, 1)
-
-        # Entangle source with Bell pair
-        self.drawer.add_control_gate("CX", 0, 1, 2)
-        self.drawer.place_gate("H", 0, 3)
-
-        # Measurements
-        self.drawer.add_measure(0, 4)
-        self.drawer.add_measure(1, 5)
-
-        # Classical correction (visual representation)
-        self.drawer.add_control_gate("CX", 1, 2, 6)
-        self.drawer.add_control_gate("CZ", 0, 2, 7)
-
-        self.drawer.redraw()
-
-        self.history.addItem("Loaded Quantum Teleportation")
-        self.console_tab.append("Quantum Teleportation loaded")
-        self.status.showMessage("Quantum Teleportation Loaded")
-
-        self.update_simulation()
-        self.autosave_circuit()
-
-    def load_grover(self):
-        self.new_circuit()
-
-        if self.drawer.qubits < 2:
-            self.console_tab.append("Grover Search requires at least 2 qubits.")
-            return
-
-        # Superposition
-        self.drawer.place_gate("H", 0, 0)
-        self.drawer.place_gate("H", 1, 0)
-
-        # Oracle (marks |11>)
-        self.drawer.add_control_gate("CZ", 0, 1, 1)
-
-        # Diffusion operator
-        self.drawer.place_gate("H", 0, 2)
-        self.drawer.place_gate("H", 1, 2)
-
-        self.drawer.place_gate("X", 0, 3)
-        self.drawer.place_gate("X", 1, 3)
-
-        self.drawer.place_gate("H", 1, 4)
-        self.drawer.add_control_gate("CX", 0, 1, 5)
-        self.drawer.place_gate("H", 1, 6)
-
-        self.drawer.place_gate("X", 0, 7)
-        self.drawer.place_gate("X", 1, 7)
-
-        self.drawer.place_gate("H", 0, 8)
-        self.drawer.place_gate("H", 1, 8)
-
-        # Measurement
-        self.drawer.add_measure(0, 9)
-        self.drawer.add_measure(1, 9)
-
-        self.drawer.redraw()
-
-        self.history.addItem("Loaded Grover Search")
-        self.console_tab.append("Grover Search loaded")
-        self.status.showMessage("Grover Search Loaded")
-
-        self.update_simulation()
-        self.autosave_circuit()
-
-    def load_deutsch(self):
-        self.new_circuit()
-
-        if self.drawer.qubits < 2:
-            self.console_tab.append("Deutsch Algorithm requires at least 2 qubits.")
-            return
-
-        # Prepare |01>
-        self.drawer.place_gate("X", 1, 0)
-
-        # Create superposition
-        self.drawer.place_gate("H", 0, 1)
-        self.drawer.place_gate("H", 1, 1)
-
-        # Oracle (balanced function)
-        self.drawer.add_control_gate("CX", 0, 1, 2)
-
-        # Final Hadamard
-        self.drawer.place_gate("H", 0, 3)
-
-        # Measure first qubit
-        self.drawer.add_measure(0, 4)
-
-        self.drawer.redraw()
-
-        self.history.addItem("Loaded Deutsch Algorithm")
-        self.console_tab.append("Deutsch Algorithm loaded")
-        self.status.showMessage("Deutsch Algorithm Loaded")
-
-        self.update_simulation()
-        self.autosave_circuit()
-
-    def load_qft(self):
-        self.new_circuit()
-
-        if self.drawer.qubits < 3:
-            self.console_tab.append(
-                "Quantum Fourier Transform requires at least 3 qubits."
-            )
-            return
-
-        # QFT on 3 qubits (simplified visual version)
-
-        self.drawer.place_gate("H", 0, 0)
-
-        self.drawer.add_control_gate("CZ", 1, 0, 1)
-        self.drawer.add_control_gate("CZ", 2, 0, 2)
-
-        self.drawer.place_gate("H", 1, 3)
-
-        self.drawer.add_control_gate("CZ", 2, 1, 4)
-
-        self.drawer.place_gate("H", 2, 5)
-
-        # Bit-reversal swap
-        self.drawer.add_control_gate("SWAP", 0, 2, 6)
-
-        self.drawer.redraw()
-
-        self.history.addItem("Loaded Quantum Fourier Transform")
-        self.console_tab.append("Quantum Fourier Transform loaded")
-        self.status.showMessage("Quantum Fourier Transform Loaded")
+        self.status.showMessage(f"{name} Ready")
 
         self.update_simulation()
         self.autosave_circuit()
 
     def autosave_circuit(self):
         data = {
-            "qubits": self.simulator.num_qubits,
+            "qubits": int(self.qubits.currentText()),
             "grid": self.drawer.circuit_grid,
         }
-
         try:
             with open("autosave.json", "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
@@ -1345,6 +1183,35 @@ class QuantumStudio(QMainWindow):
         print("After:", self.recent_files)
         self.update_recent_menu()
         self.save_recent_files()
+
+    def restore_autosave(self):
+
+        if not os.path.exists("autosave.json"):
+            return
+
+        try:
+            with open("autosave.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            qubits = data["qubits"]
+            grid = data["grid"]
+
+            self.qubits.setCurrentText(str(qubits))
+
+            self.drawer.create_grid(qubits)
+            self.drawer.circuit_grid = grid
+
+            self.drawer.selected_qubit = 0
+            self.drawer.selected_column = 0
+
+            self.drawer.redraw()
+
+            self.update_simulation()
+
+            self.console_tab.append("Recovered autosaved session.")
+
+        except Exception:
+            pass
 
     def update_recent_menu(self):
         self.recent_menu.clear()
@@ -1377,7 +1244,7 @@ class QuantumStudio(QMainWindow):
 
             self.drawer.redraw()
             self.history.clear()
-            self.circuit_tab.clear()
+            self.circuit_console.clear()
 
             self.update_simulation()
 
@@ -1428,6 +1295,546 @@ class QuantumStudio(QMainWindow):
                 self.save_settings()
         except Exception as e:
             self.console_tab.append(f"Settings load error: {e}")
+
+    def load_algorithm(self, module_name, display_name):
+        print("LOAD ALGORITHM CALLED")
+        try:
+            module = importlib.import_module(f"algorithms.{module_name}")
+
+            circuit = module.build()
+
+            self.drawer.convert_circuit_to_grid(circuit)
+
+            info = getattr(module, "INFO", {})
+            print("Updating labels...")
+            print(self.algorithm_name.text())
+            self.algorithm_name.setText(info.get("name", display_name))
+
+            self.algorithm_description.setText(info.get("description", ""))
+
+            self.algorithm_qubits.setText(f"Qubits: {circuit.num_qubits}")
+
+            self.algorithm_depth.setText(f"Depth: {circuit.depth()}")
+
+            self.algorithm_gates.setText(f"Gate Count: {len(circuit.data)}")
+
+            self.finish_algorithm_load(display_name)
+
+        except Exception as e:
+            self.console_tab.append(f"Error loading {display_name}: {e}")
+            self.status.showMessage("Algorithm Load Failed")
+
+    def create_algorithm_menu(self):
+
+        algorithm_menu = self.menuBar().addMenu("Algorithms")
+
+        folder = "algorithms"
+
+        if not os.path.isdir(folder):
+            return
+
+        for filename in sorted(os.listdir(folder)):
+
+            if filename.startswith("_") or not filename.endswith(".py"):
+                continue
+
+            module_name = filename[:-3]
+
+            try:
+                module = importlib.import_module(f"algorithms.{module_name}")
+
+                if not hasattr(module, "build"):
+                    continue
+
+                display_name = getattr(
+                    module,
+                    "DISPLAY_NAME",
+                    module_name.replace("_", " ").title(),
+                )
+
+                action = QAction(display_name, self)
+
+                action.triggered.connect(
+                    lambda checked=False, m=module_name, d=display_name: self.load_algorithm(
+                        m, d
+                    )
+                )
+
+                algorithm_menu.addAction(action)
+
+            except Exception as e:
+                if hasattr(self, "console_tab"):
+                    self.console_tab.append(
+                        f"Failed to load algorithm '{module_name}': {e}"
+                    )
+        algorithm_menu.addSeparator()
+        browse = QAction("Browse Algorithms...", self)
+        browse.triggered.connect(self.show_algorithm_browser)
+        algorithm_menu.addAction(browse)
+
+    def show_algorithm_browser(self):
+
+        algorithms = {}
+
+        folder = "algorithms"
+
+        for filename in os.listdir(folder):
+
+            if filename.endswith(".py") and filename != "__init__.py":
+
+                display = filename[:-3].replace("_", " ").title()
+
+                module = filename[:-3]
+
+                algorithms[display] = module
+
+        browser = AlgorithmBrowser(algorithms, self)
+
+        if browser.exec():
+
+            name = browser.selected_algorithm()
+
+            if name:
+                self.load_algorithm(
+                    algorithms[name],
+                    name,
+                )
+
+    def update_recent_projects_menu(self):
+
+        self.recent_projects_menu.clear()
+
+        projects = self.project_manager.recent()
+
+        if not projects:
+
+            action = QAction("No Recent Projects", self)
+            action.setEnabled(False)
+            self.recent_projects_menu.addAction(action)
+            return
+
+        for filename in projects:
+
+            action = QAction(Path(filename).name, self)
+
+            action.triggered.connect(
+                lambda checked=False, f=filename: self.open_recent_project(f)
+            )
+
+            self.recent_projects_menu.addAction(action)
+
+    def open_recent_project(self, filename):
+
+        if not os.path.exists(filename):
+
+            QMessageBox.warning(
+                self,
+                "File Missing",
+                "Project file not found.",
+            )
+
+            self.update_recent_projects_menu()
+
+            return
+
+        try:
+
+            with open(filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            qubits = data["qubits"]
+            grid = data["grid"]
+
+            self.qubits.setCurrentText(str(qubits))
+
+            self.drawer.create_grid(qubits)
+            self.drawer.circuit_grid = grid
+
+            self.drawer.selected_qubit = 0
+            self.drawer.selected_column = 0
+
+            self.drawer.redraw()
+
+            self.history.clear()
+            self.circuit_console.clear()
+
+            self.update_simulation()
+
+            self.project_manager.add(filename)
+
+            self.update_recent_projects_menu()
+
+            self.console_tab.append(f"Loaded {Path(filename).name}")
+
+            self.status.showMessage("Circuit loaded")
+
+        except Exception as e:
+
+            QMessageBox.critical(
+                self,
+                "Open Error",
+                str(e),
+            )
+
+    def open_plot_window(self, view):
+
+        from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit
+
+        if not hasattr(self, "plot_windows"):
+            self.plot_windows = {}
+
+        if view in self.plot_windows:
+
+            w = self.plot_windows[view]
+            w.showNormal()
+            w.raise_()
+            w.activateWindow()
+
+            if view == "Circuit":
+
+                canvas = w.layout().itemAt(0).widget()
+                canvas.clear()
+
+                for row in range(self.drawer.qubits):
+
+                    line = f"Q{row}: "
+
+                    for col in range(self.drawer.columns):
+
+                        cell = self.drawer.circuit_grid[row][col]
+
+                        if cell is None:
+                            line += "---- "
+
+                        elif cell["type"] == "single":
+                            line += f"{cell['gate']} "
+
+                        elif cell["type"] == "control":
+                            line += "● "
+
+                        elif cell["type"] == "target":
+
+                            if cell["gate"] == "CX":
+                                line += "⊕ "
+
+                            elif cell["gate"] == "CZ":
+                                line += "Z "
+
+                            elif cell["gate"] == "SWAP":
+                                line += "× "
+
+                            else:
+                                line += f"{cell['gate']} "
+
+                        elif cell["type"] == "measure":
+                            line += "M "
+
+                        else:
+                            line += "? "
+
+                    canvas.append(line)
+
+            elif view == "Console":
+
+                canvas = w.layout().itemAt(0).widget()
+                canvas.setPlainText(self.console_tab.toPlainText())
+
+            elif view == "Statistics":
+
+                canvas = w.layout().itemAt(0).widget()
+                canvas.setPlainText(f"""Qubits: {self.simulator.num_qubits}
+    Depth: {self.simulator.circuit.depth()}
+    Gate Count: {len(self.simulator.circuit.data)}""")
+
+            return
+
+        window = QWidget()
+        window.setWindowTitle(view)
+        window.resize(900, 650)
+
+        layout = QVBoxLayout(window)
+
+        if view == "Histogram":
+
+            canvas = HistogramCanvas()
+
+            try:
+                canvas.update_plot(self.simulator.get_counts())
+            except Exception:
+                pass
+
+        elif view == "Statevector":
+
+            canvas = StatevectorCanvas()
+
+            try:
+                canvas.update_state(self.simulator.get_state())
+            except Exception:
+                pass
+
+        elif view == "Bloch Sphere":
+
+            canvas = BlochCanvas()
+
+            try:
+                canvas.update_state(self.simulator.get_state())
+            except Exception:
+                pass
+
+        elif view == "Probability":
+
+            canvas = ProbabilityCanvas()
+
+            try:
+                canvas.update_probabilities(self.simulator.get_probabilities())
+            except Exception:
+                pass
+
+        elif view == "Circuit":
+
+            canvas = QTextEdit()
+            canvas.setReadOnly(True)
+
+            for row in range(self.drawer.qubits):
+
+                line = f"Q{row}: "
+
+                for col in range(self.drawer.columns):
+
+                    cell = self.drawer.circuit_grid[row][col]
+
+                    if cell is None:
+                        line += "---- "
+
+                    elif cell["type"] == "single":
+                        line += f"{cell['gate']} "
+
+                    elif cell["type"] == "control":
+                        line += "● "
+
+                    elif cell["type"] == "target":
+
+                        if cell["gate"] == "CX":
+                            line += "⊕ "
+
+                        elif cell["gate"] == "CZ":
+                            line += "Z "
+
+                        elif cell["gate"] == "SWAP":
+                            line += "× "
+
+                        else:
+                            line += f"{cell['gate']} "
+
+                    elif cell["type"] == "measure":
+                        line += "M "
+
+                    else:
+                        line += "? "
+
+                canvas.append(line)
+
+        elif view == "Console":
+
+            canvas = QTextEdit()
+            canvas.setReadOnly(True)
+            canvas.setPlainText(self.console_tab.toPlainText())
+
+        elif view == "Statistics":
+
+            canvas = QTextEdit()
+            canvas.setReadOnly(True)
+            canvas.setPlainText(f"""Qubits: {self.simulator.num_qubits}
+    Depth: {self.simulator.circuit.depth()}
+    Gate Count: {len(self.simulator.circuit.data)}""")
+
+        else:
+            return
+
+        layout.addWidget(canvas)
+
+        self.plot_windows[view] = window
+
+        window.show()
+
+    def setup_shortcuts(self):
+
+        # Navigation
+        QShortcut(
+            QKeySequence(Qt.Key_Left),
+            self,
+            lambda: self.move_selection(0, -1),
+        )
+
+        QShortcut(
+            QKeySequence(Qt.Key_Right),
+            self,
+            lambda: self.move_selection(0, 1),
+        )
+
+        QShortcut(
+            QKeySequence(Qt.Key_Up),
+            self,
+            lambda: self.move_selection(-1, 0),
+        )
+
+        QShortcut(
+            QKeySequence(Qt.Key_Down),
+            self,
+            lambda: self.move_selection(1, 0),
+        )
+
+        # Gate shortcuts
+        QShortcut(
+            QKeySequence("H"),
+            self,
+            lambda: self.add_gate("H"),
+        )
+
+        QShortcut(
+            QKeySequence("X"),
+            self,
+            lambda: self.add_gate("X"),
+        )
+
+        QShortcut(
+            QKeySequence("Y"),
+            self,
+            lambda: self.add_gate("Y"),
+        )
+
+        QShortcut(
+            QKeySequence("Z"),
+            self,
+            lambda: self.add_gate("Z"),
+        )
+
+        QShortcut(
+            QKeySequence("S"),
+            self,
+            lambda: self.add_gate("S"),
+        )
+
+        QShortcut(
+            QKeySequence("T"),
+            self,
+            lambda: self.add_gate("T"),
+        )
+
+        QShortcut(
+            QKeySequence("M"),
+            self,
+            lambda: self.add_gate("Measure"),
+        )
+
+        # File shortcuts
+        QShortcut(
+            QKeySequence("Ctrl+N"),
+            self,
+            activated=self.new_circuit,
+        )
+
+        QShortcut(
+            QKeySequence("Ctrl+O"),
+            self,
+            activated=self.open_circuit,
+        )
+
+        QShortcut(
+            QKeySequence("Ctrl+S"),
+            self,
+            activated=self.save_circuit,
+        )
+
+        # Edit shortcuts
+        QShortcut(
+            QKeySequence("Ctrl+Z"),
+            self,
+            activated=self.undo_gate,
+        )
+
+        QShortcut(
+            QKeySequence("Ctrl+Y"),
+            self,
+            activated=self.redo_gate,
+        )
+
+        QShortcut(
+            QKeySequence("Ctrl+Shift+Z"),
+            self,
+            activated=self.redo_gate,
+        )
+
+        QShortcut(
+            QKeySequence("Delete"),
+            self,
+            activated=self.delete_selected_gate,
+        )
+
+    def refresh_views(self):
+
+        try:
+            counts = self.simulator.get_counts()
+            state = self.simulator.get_state()
+            probabilities = self.simulator.get_probabilities()
+
+            if hasattr(self, "plot_windows"):
+
+                if "Histogram" in self.plot_windows:
+
+                    canvas = self.plot_windows["Histogram"].layout().itemAt(0).widget()
+
+                    canvas.update_plot(counts)
+
+                if "Statevector" in self.plot_windows:
+
+                    canvas = (
+                        self.plot_windows["Statevector"].layout().itemAt(0).widget()
+                    )
+
+                    canvas.update_state(state)
+
+                if "Bloch Sphere" in self.plot_windows:
+
+                    canvas = (
+                        self.plot_windows["Bloch Sphere"].layout().itemAt(0).widget()
+                    )
+
+                    canvas.update_state(state)
+
+                if "Probability" in self.plot_windows:
+
+                    canvas = (
+                        self.plot_windows["Probability"].layout().itemAt(0).widget()
+                    )
+
+                    canvas.update_probabilities(probabilities)
+
+        except Exception as e:
+
+            print("Refresh Views Error:", e)
+
+    def open_settings(self):
+
+        dialog = SettingsDialog(
+            self.settings,
+            self,
+        )
+
+        if dialog.exec():
+
+            self.settings = dialog.get_settings()
+
+            self.qubits.setCurrentText(str(self.settings["default_qubits"]))
+
+            self.animation_timer.setInterval(self.settings["animation_speed"])
+
+            self.save_settings()
+
+            self.status.showMessage(
+                "Settings Saved",
+                3000,
+            )
 
 
 if __name__ == "__main__":

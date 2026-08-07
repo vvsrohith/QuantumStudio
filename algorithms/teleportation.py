@@ -1,27 +1,25 @@
-from algorithms.bell import BellState
+INFO = {
+    "name": "Quantum Teleportation",
+    "description": "Transfers an unknown quantum state between two distant qubits using entanglement and classical communication.",
+}
+from qiskit import QuantumCircuit
 
-from qiskit_aer import AerSimulator
-
-from qiskit.visualization import plot_histogram
-
-import matplotlib.pyplot as plt
+DISPLAY_NAME = "Teleportation"
 
 
-backend = AerSimulator()
+def build():
+    circuit = QuantumCircuit(3, 2)
 
-circuit = BellState.build()
+    circuit.h(1)
+    circuit.cx(1, 2)
 
-job = backend.run(
-    circuit,
-    shots=1024
-)
+    circuit.cx(0, 1)
+    circuit.h(0)
 
-result = job.result()
+    circuit.measure(0, 0)
+    circuit.measure(1, 1)
 
-counts = result.get_counts()
+    circuit.cx(1, 2)
+    circuit.cz(0, 2)
 
-print(counts)
-
-plot_histogram(counts)
-
-plt.show()
+    return circuit

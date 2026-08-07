@@ -1,3 +1,7 @@
+INFO = {
+    "name": "Superdense Coding",
+    "description": "Transmits two classical bits by sending only one qubit using shared entanglement.",
+}
 from qiskit import QuantumCircuit
 
 
@@ -6,10 +10,7 @@ class SuperdenseCoding:
     @staticmethod
     def build(message="10"):
 
-        circuit = QuantumCircuit(
-            2,
-            2
-        )
+        circuit = QuantumCircuit(2, 2)
 
         # Create Bell pair
         circuit.h(0)
@@ -30,10 +31,7 @@ class SuperdenseCoding:
         circuit.cx(0, 1)
         circuit.h(0)
 
-        circuit.measure(
-            [0, 1],
-            [0, 1]
-        )
+        circuit.measure([0, 1], [0, 1])
 
         return circuit
 
@@ -45,7 +43,4 @@ class SuperdenseCoding:
     @staticmethod
     def description():
 
-        return (
-            "Encodes two classical bits into one qubit "
-            "using entanglement."
-        )
+        return "Encodes two classical bits into one qubit " "using entanglement."

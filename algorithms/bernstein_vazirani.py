@@ -1,3 +1,7 @@
+INFO = {
+    "name": "Bernstein-Vazirani",
+    "description": "Finds a hidden binary string using a single quantum oracle evaluation.",
+}
 from qiskit import QuantumCircuit
 
 
@@ -8,10 +12,7 @@ class BernsteinVazirani:
 
         n = len(secret)
 
-        circuit = QuantumCircuit(
-            n + 1,
-            n
-        )
+        circuit = QuantumCircuit(n + 1, n)
 
         # Prepare ancilla
         circuit.x(n)
@@ -25,20 +26,14 @@ class BernsteinVazirani:
 
             if bit == "1":
 
-                circuit.cx(
-                    index,
-                    n
-                )
+                circuit.cx(index, n)
 
         # Interference
         for qubit in range(n):
             circuit.h(qubit)
 
         # Measure
-        circuit.measure(
-            range(n),
-            range(n)
-        )
+        circuit.measure(range(n), range(n))
 
         return circuit
 
@@ -50,7 +45,4 @@ class BernsteinVazirani:
     @staticmethod
     def description():
 
-        return (
-            "Finds a hidden binary string using "
-            "a single oracle query."
-        )
+        return "Finds a hidden binary string using " "a single oracle query."

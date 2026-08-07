@@ -1,3 +1,7 @@
+INFO = {
+    "name": "Deutsch-Jozsa Algorithm",
+    "description": "Determines whether a Boolean function is constant or balanced exponentially faster than any classical deterministic algorithm.",
+}
 from qiskit import QuantumCircuit
 
 
@@ -6,10 +10,7 @@ class DeutschJozsa:
     @staticmethod
     def build(n=3, oracle="balanced"):
 
-        circuit = QuantumCircuit(
-            n + 1,
-            n
-        )
+        circuit = QuantumCircuit(n + 1, n)
 
         # Prepare ancilla
         circuit.x(n)
@@ -22,10 +23,7 @@ class DeutschJozsa:
         if oracle == "balanced":
 
             for qubit in range(n):
-                circuit.cx(
-                    qubit,
-                    n
-                )
+                circuit.cx(qubit, n)
 
         elif oracle == "constant_1":
 
@@ -46,10 +44,7 @@ class DeutschJozsa:
             circuit.h(qubit)
 
         # Measurement
-        circuit.measure(
-            range(n),
-            range(n)
-        )
+        circuit.measure(range(n), range(n))
 
         return circuit
 

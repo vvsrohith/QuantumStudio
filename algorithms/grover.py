@@ -1,115 +1,40 @@
-from math import floor, pi, sqrt
-
+INFO = {
+    "name": "Grover Search",
+    "description": "Searches an unsorted database using amplitude amplification to achieve quadratic speedup.",
+}
 from qiskit import QuantumCircuit
 
+DISPLAY_NAME = "Grover Search"
 
-class GroverSearch:
 
-    @staticmethod
-    def build(qubits=2, marked_state=None):
+def build():
+    circuit = QuantumCircuit(2, 2)
 
-        if qubits < 2:
-            raise ValueError(
-                "Grover Search requires at least 2 qubits."
-            )
+    # Superposition
+    circuit.h(0)
+    circuit.h(1)
 
-        if marked_state is None:
-            marked_state = "1" * qubits
+    # Oracle
+    circuit.cz(0, 1)
 
-        circuit = QuantumCircuit(
-            qubits,
-            qubits
-        )
+    # Diffusion Operator
+    circuit.h(0)
+    circuit.h(1)
 
-        # Create uniform superposition
-        for qubit in range(qubits):
-            circuit.h(qubit)
+    circuit.x(0)
+    circuit.x(1)
 
-        iterations = max(
-            1,
-            floor(
-                (pi / 4) * sqrt(2 ** qubits)
-            )
-        )
+    circuit.h(1)
+    circuit.cx(0, 1)
+    circuit.h(1)
 
-        for _ in range(iterations):
+    circuit.x(0)
+    circuit.x(1)
 
-            GroverSearch.oracle(
-                circuit,
-                marked_state
-            )
+    circuit.h(0)
+    circuit.h(1)
 
-            GroverSearch.diffuser(
-                circuit,
-                qubits
-            )
+    circuit.measure(0, 0)
+    circuit.measure(1, 1)
 
-        circuit.measure(
-            range(qubits),
-            range(qubits)
-        )
-
-        return circuit
-
-    @staticmethod
-    def oracle(
-        circuit,
-        marked_state
-    ):
-
-        qubits = len(marked_state)
-
-        for i, bit in enumerate(marked_state):
-
-            if bit == "0":
-                circuit.x(i)
-
-        circuit.h(qubits - 1)
-
-        circuit.mcx(
-            list(range(qubits - 1)),
-            qubits - 1
-        )
-
-        circuit.h(qubits - 1)
-
-        for i, bit in enumerate(marked_state):
-
-            if bit == "0":
-                circuit.x(i)
-
-    @staticmethod
-    def diffuser(
-        circuit,
-        qubits
-    ):
-
-        for qubit in range(qubits):
-            circuit.h(qubit)
-            circuit.x(qubit)
-
-        circuit.h(qubits - 1)
-
-        circuit.mcx(
-            list(range(qubits - 1)),
-            qubits - 1
-        )
-
-        circuit.h(qubits - 1)
-
-        for qubit in range(qubits):
-            circuit.x(qubit)
-            circuit.h(qubit)
-
-    @staticmethod
-    def name():
-
-        return "Grover Search"
-
-    @staticmethod
-    def description():
-
-        return (
-            "Searches an unsorted database using "
-            "Grover's amplitude amplification algorithm."
-        )
+    return circuit
